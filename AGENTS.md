@@ -31,7 +31,7 @@ Run from the repository root.
 - `bun run check` runs typecheck, lint, and tests through Turborepo. It must be green before any deploy.
 - `bun run --cwd apps/website dev` serves the page alone with Vite; chat requests fail, which is enough for UI work.
 - `bun run dev` runs the whole stack with `alchemy dev`, reading `.env` (copy `.env.example`).
-- `bun run deploy:dev` deploys the `dev` stage to workers.dev. `bun run deploy:prod` reads `.env.prod` and takes the `marcsuesser.com` and `www` custom domains; confirm with Marc before running it, since an older Worker may still hold those domains.
+- `bun run deploy:dev` deploys the `dev` stage to workers.dev. `bun run deploy:prod` reads `.env.prod` and updates the live site at `marcsuesser.com` (with `www` redirecting to it); confirm with Marc before running it.
 
 ## Conventions
 
