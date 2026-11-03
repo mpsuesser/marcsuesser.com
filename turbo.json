@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/turbo/schema.json",
+  "noUpdateNotifier": true,
+  "cacheMaxAge": "7d",
+  "globalDependencies": ["tsconfig.base.json"],
+  "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "typecheck": {
+      "dependsOn": ["transit"],
+      "outputLogs": "errors-only"
+    },
+    "lint": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxlintrc.json"],
+      "outputLogs": "errors-only"
+    },
+    "test": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest.config.ts"],
+      "outputLogs": "errors-only"
+    },
+    "//#typecheck:root": {
+      "inputs": [
+        "tsconfig.root.json",
+        "alchemy.run.ts",
+        "vitest.config.ts",
+        "apps/*/src/**/*.ts",
+        "packages/*/src/**/*.ts"
+      ],
+      "outputLogs": "errors-only"
+    },
+    "//#lint:root": {
+      "inputs": [".oxlintrc.json", "alchemy.run.ts", "vitest.config.ts"],
+      "outputLogs": "errors-only"
+    }
+  }
+}

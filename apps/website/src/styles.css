@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+html {
+	color-scheme: dark;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+}
+
+/*
+ * The conversation's scroll area. The gutter is always reserved so text never
+ * shifts, and the thumb shows only while the pointer is over the area, so a
+ * streaming reply doesn't flash a scrollbar.
+ */
+.chat-scroll {
+	scrollbar-gutter: stable;
+	scrollbar-width: thin;
+	scrollbar-color: transparent transparent;
+	transition: scrollbar-color 150ms ease;
+}
+
+.chat-scroll:hover {
+	scrollbar-color: rgb(63 63 70 / 0.6) transparent;
+}
+
+/* Rendered Markdown in assistant replies. */
+@layer components {
+	.reply {
+		line-height: 1.7;
+	}
+
+	.reply > * + * {
+		margin-top: 1em;
+	}
+
+	.reply h2,
+	.reply h3,
+	.reply h4 {
+		font-weight: 600;
+		line-height: 1.3;
+		margin-top: 1.5em;
+	}
+
+	.reply h2 {
+		font-size: 1.25em;
+	}
+
+	.reply h3 {
+		font-size: 1.1em;
+	}
+
+	.reply a {
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		text-decoration-color: var(--color-zinc-500);
+	}
+
+	.reply a:hover {
+		text-decoration-color: var(--color-zinc-200);
+	}
+
+	.reply strong {
+		font-weight: 600;
+		color: var(--color-white);
+	}
+
+	.reply ul,
+	.reply ol {
+		padding-left: 1.5em;
+	}
+
+	.reply ul {
+		list-style: disc;
+	}
+
+	.reply ol {
+		list-style: decimal;
+	}
+
+	.reply li + li {
+		margin-top: 0.35em;
+	}
+
+	.reply li::marker {
+		color: var(--color-zinc-500);
+	}
+
+	.reply blockquote {
+		border-left: 2px solid var(--color-zinc-700);
+		padding-left: 1em;
+		color: var(--color-zinc-400);
+	}
+
+	.reply hr {
+		border-color: var(--color-zinc-800);
+	}
+
+	.reply code {
+		font-size: 0.9em;
+		background-color: var(--color-zinc-800);
+		padding: 0.1rem 0.3rem;
+		border-radius: 0.25rem;
+	}
+
+	.reply pre {
+		overflow-x: auto;
+		border: 1px solid var(--color-zinc-800);
+		background-color: var(--color-zinc-900);
+		border-radius: 0.5rem;
+		padding: 0.75rem 1rem;
+	}
+
+	.reply pre code {
+		background: none;
+		padding: 0;
+	}
+
+	.reply-table {
+		overflow-x: auto;
+	}
+
+	.reply table {
+		border-collapse: collapse;
+		font-size: 0.95em;
+	}
+
+	.reply th,
+	.reply td {
+		border: 1px solid var(--color-zinc-800);
+		padding: 0.35rem 0.75rem;
+		text-align: left;
+	}
+}

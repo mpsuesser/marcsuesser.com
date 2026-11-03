@@ -1,0 +1,89 @@
+{
+  "$schema": "https://www.schemastore.org/package.json",
+  "name": "marcsuesser.com",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "@alchemy.run/cloudflare": "2.0.0-beta.85",
+      "@effect/ai-openai": "4.1.2",
+      "@effect/platform-browser": "4.1.2",
+      "@effect/platform-bun": "4.1.2",
+      "@foldkit/ui": "0.170.0",
+      "@tailwindcss/vite": "4.3.4",
+      "alchemy": "2.0.0-beta.85",
+      "effect": "4.1.2",
+      "foldkit": "0.170.0",
+      "marked": "18.1.3",
+      "tailwindcss": "4.3.4"
+    },
+    "catalogs": {
+      "dev": {
+        "@effect/language-service": "0.87.5",
+        "@effect/tsgo": "0.64.1",
+        "@effect/vitest": "4.1.2",
+        "@enfect/oxlint": "0.10.0",
+        "@foldkit/oxlint-plugin": "0.15.4",
+        "@foldkit/vite-plugin": "0.29.0",
+        "@types/bun": "1.4.4",
+        "@types/node": "26.6.6",
+        "dprint": "0.64.3",
+        "happy-dom": "21.0.4",
+        "lefthook": "2.2.2",
+        "oxlint": "1.90.0",
+        "oxlint-tsgolint": "7.0.2005",
+        "turbo": "2.11.10",
+        "typescript": "7.0.2",
+        "vite": "8.3.5",
+        "vitest": "5.1.0"
+      }
+    }
+  },
+  "scripts": {
+    "dev": "bun --no-env-file node_modules/.bin/alchemy dev alchemy.run.ts --stage dev --env-file .env",
+    "deploy:dev": "bun --no-env-file node_modules/.bin/alchemy deploy alchemy.run.ts --stage dev --env-file .env",
+    "deploy:prod": "bun --no-env-file node_modules/.bin/alchemy deploy alchemy.run.ts --stage prod --env-file .env.prod",
+    "check": "turbo run typecheck typecheck:root lint lint:root test --continue=dependencies-successful",
+    "typecheck": "turbo run typecheck typecheck:root --continue=dependencies-successful",
+    "typecheck:root": "tsc --noEmit --checkers 1 -p tsconfig.root.json",
+    "lint": "turbo run lint lint:root --continue=dependencies-successful",
+    "lint:root": "oxlint --report-unused-disable-directives --deny-warnings alchemy.run.ts vitest.config.ts",
+    "test": "turbo run test --continue=dependencies-successful",
+    "test:watch": "vitest",
+    "prepare": "effect-tsgo patch --oxlint && if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then lefthook install; else echo 'Skipping lefthook install (not a git repo)'; fi"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "@effect/platform-bun": "catalog:",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:dev",
+    "@effect/tsgo": "catalog:dev",
+    "@effect/vitest": "catalog:dev",
+    "@enfect/oxlint": "catalog:dev",
+    "@foldkit/oxlint-plugin": "catalog:dev",
+    "@types/bun": "catalog:dev",
+    "dprint": "catalog:dev",
+    "lefthook": "catalog:dev",
+    "oxlint": "catalog:dev",
+    "oxlint-tsgolint": "catalog:dev",
+    "turbo": "catalog:dev",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev",
+    "vitest": "catalog:dev"
+  },
+  "engines": {
+    "bun": ">=1.4.4"
+  },
+  "trustedDependencies": [
+    "dprint",
+    "lefthook"
+  ]
+}

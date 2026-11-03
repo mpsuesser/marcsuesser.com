@@ -1,0 +1,12 @@
+{
+  "$schema": "https://www.schemastore.org/tsconfig.json",
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "alchemy.run.ts",
+    "vitest.config.ts",
+    "apps/chat/src/markdown.d.ts"
+  ],
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+  }
+}

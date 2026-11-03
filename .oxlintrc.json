@@ -1,0 +1,166 @@
+{
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  "options": {
+    "typeAware": true
+  },
+  "extends": [
+    "./node_modules/@foldkit/oxlint-plugin/recommended.json"
+  ],
+  "plugins": [
+    "effecttsgo",
+    "typescript",
+    "import",
+    "unicorn",
+    "vitest"
+  ],
+  "jsPlugins": [
+    {
+      "name": "effect",
+      "specifier": "@enfect/oxlint"
+    }
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "effect/no-chained-type-assertions": "error",
+    "effect/no-conditional-empty-object-spread": "error",
+    "effect/no-known-value-widening": "error",
+    "effect/no-module-mocking": "error",
+    "effect/no-object-parameters": "error",
+    "effect/no-reflect-apply": "error",
+    "effect/no-reflect-get": "error",
+    "effect/no-runtime-typeof": "error",
+    "effect/no-service-constructor-imports": "error",
+    "effect/no-shape-in-symbol-names": "error",
+    "effect/no-unknown-parameters": "error",
+    "effect/no-unknown-returns": "error",
+    "effect/no-unknown-type-aliases": "error",
+    "effect/no-unsafe-dictionary-type": "error",
+    "effect/no-unsupported-tailwind-spacing": "error",
+    "effect/no-widen-then-assert": "error",
+    "effect/require-safety-comment-for-type-assertion": "error",
+    "effect/avoid-any": "off",
+    "effect/avoid-data-tagged-error": "error",
+    "effect/avoid-direct-json": "error",
+    "effect/avoid-direct-tag-checks": "error",
+    "effect/avoid-expect-in-if": "error",
+    "effect/avoid-mutable-state": "error",
+    "effect/avoid-native-fetch": "error",
+    "effect/avoid-native-object-helpers": "error",
+    "effect/avoid-node-imports": "error",
+    "effect/avoid-non-null-assertion": "error",
+    "effect/avoid-object-type": "error",
+    "effect/avoid-option-getorthrow": "error",
+    "effect/avoid-platform-coupling": "error",
+    "effect/avoid-process-env": "error",
+    "effect/avoid-react-hooks": "error",
+    "effect/avoid-schema-suffix": "error",
+    "effect/avoid-sync-fs": "error",
+    "effect/avoid-try-catch": "off",
+    "effect/avoid-ts-ignore": "error",
+    "effect/avoid-untagged-errors": "error",
+    "effect/avoid-yield-ref": "error",
+    "effect/casting-awareness": "off",
+    "effect/context-tag-extends": "error",
+    "effect/effect-catchall-default": "error",
+    "effect/effect-promise-vs-trypromise": "error",
+    "effect/effect-run-in-body": "off",
+    "effect/imperative-loops": "error",
+    "effect/maybe-prefix-requires-option": "error",
+    "effect/no-barrel-imports": "error",
+    "effect/no-effect-ignore-then-as": "error",
+    "effect/no-length-comparison": "error",
+    "effect/no-opaque-instance-fields": "error",
+    "effect/prefer-arr-match": "error",
+    "effect/prefer-arr-sort": "error",
+    "effect/prefer-array-fromoption-over-option-match-empty": "error",
+    "effect/prefer-duration-constructors": "error",
+    "effect/prefer-effect-fn": "off",
+    "effect/prefer-effect-is": "error",
+    "effect/prefer-match-over-switch": "error",
+    "effect/prefer-namespace-imports": "error",
+    "effect/prefer-option-over-null": "error",
+    "effect/prefer-redacted-config": "error",
+    "effect/require-effect-concurrency": "error",
+    "effect/require-filter-metadata": "error",
+    "effect/require-is-prefix-for-boolean-schema-field": "error",
+    "effect/require-schema-type-alias": "error",
+    "effect/throw-in-effect-gen": "error",
+    "effect/use-clock-service": "error",
+    "effect/use-command-executor-service": "error",
+    "effect/use-console-service": "error",
+    "effect/use-filesystem-service": "error",
+    "effect/use-http-client-service": "error",
+    "effect/use-path-service": "error",
+    "effect/use-random-service": "error",
+    "effect/use-temp-file-scoped": "error",
+    "effect/vm-in-wrong-file": "error",
+    "effect/yield-in-for-loop": "error",
+    "unicorn/no-array-sort": "off",
+    "unicorn/require-module-specifiers": "off",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-extra-non-null-assertion": "error",
+    "vitest/require-to-throw-message": "off",
+    "no-underscore-dangle": [
+      "warn",
+      {
+        "allow": [
+          "_tag"
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/test/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "vitest",
+                "message": "Import test helpers from @effect/vitest, which also re-exports the standard Vitest API."
+              }
+            ]
+          }
+        ],
+        "effecttsgo/strict-effect-provide": "off",
+        "effect/avoid-untagged-errors": "off",
+        "vitest/expect-expect": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/chat/src/**/*.ts",
+        "apps/website/src/worker/**/*.ts"
+      ],
+      "rules": {
+        "foldkit/no-nonportable-server-globals": "error",
+        "foldkit/no-impure-call-at-decision-time": "off"
+      }
+    },
+    {
+      "files": [
+        "alchemy.run.ts",
+        "apps/chat/src/ChatWorker.ts"
+      ],
+      "rules": {
+        "effecttsgo/strict-effect-provide": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.tsbuildinfo",
+    ".alchemy/**"
+  ]
+}

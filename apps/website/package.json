@@ -1,0 +1,32 @@
+{
+  "name": "@marcsuesser/website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit --checkers 1 -p tsconfig.json",
+    "lint": "oxlint --report-unused-disable-directives --deny-warnings .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@foldkit/ui": "catalog:",
+    "@effect/platform-browser": "catalog:",
+    "@marcsuesser/chat-contract": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "effect": "catalog:",
+    "foldkit": "catalog:",
+    "marked": "catalog:",
+    "tailwindcss": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:dev",
+    "@foldkit/vite-plugin": "catalog:dev",
+    "@types/node": "catalog:dev",
+    "happy-dom": "catalog:dev",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev",
+    "vitest": "catalog:dev"
+  }
+}

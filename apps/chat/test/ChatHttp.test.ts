@@ -1,0 +1,203 @@
+import { assert, describe, it } from '@effect/vitest';
+import { CHAT_PATH, ChatEvent } from '@marcsuesser/chat-contract';
+import { AiError, LanguageModel, Prompt } from 'effect/ai';
+import * as Arr from 'effect/Array';
+import * as Effect from 'effect/Effect';
+import * as HttpClientRequest from 'effect/http/HttpClientRequest';
+import * as HttpClientResponse from 'effect/http/HttpClientResponse';
+import * as HttpRouter from 'effect/http/HttpRouter';
+import * as HttpServerError from 'effect/http/HttpServerError';
+import * as HttpServerRequest from 'effect/http/HttpServerRequest';
+import * as HttpServerResponse from 'effect/http/HttpServerResponse';
+import * as Layer from 'effect/Layer';
+import * as Schema from 'effect/Schema';
+import * as Stream from 'effect/Stream';
+import * as Str from 'effect/String';
+
+import { chatRoutes } from '../src/ChatHttp.ts';
+
+const ChatEventJson = Schema.fromJsonString(ChatEvent);
+
+/** A model that streams fixed text deltas, optionally failing midway. */
+const fakeModel = (options: {
+	readonly deltas: ReadonlyArray<string>;
+	readonly isFailingAfterDeltas?: boolean;
+}) => {
+	const prompts: Array<Prompt.Prompt> = [];
+	const layer = Layer.effect(
+		LanguageModel.LanguageModel,
+		LanguageModel.make({
+			generateText: () => Effect.succeed([]),
+			streamText: (providerOptions) => {
+				prompts.push(providerOptions.prompt);
+				const deltas = Stream.fromIterable(
+					Arr.map(options.deltas, (delta) => ({
+						type: 'text-delta' as const,
+						id: 'text-1',
+						delta
+					}))
+				);
+				return options.isFailingAfterDeltas === true
+					? Stream.concat(
+						deltas,
+						Stream.fail(
+							AiError.make({
+								module: 'Test',
+								method: 'streamText',
+								reason: new AiError.UnknownError({
+									description: 'upstream reset'
+								})
+							})
+						)
+					)
+					: deltas;
+			}
+		})
+	);
+	return { layer, prompts };
+};
+
+const allowAll = { isAllowed: () => Effect.succeed(true) };
+const denyAll = { isAllowed: () => Effect.succeed(false) };
+
+/** Any JSON body shape, including ones `ChatRequest` rejects. */
+const ChatBody = Schema.Struct({
+	messages: Schema.Array(
+		Schema.Struct({ role: Schema.String, content: Schema.String })
+	)
+});
+type ChatBody = typeof ChatBody.Type;
+const ChatBodyJson = Schema.fromJsonString(ChatBody);
+
+const postChat = (body: ChatBody, path = '/api/chat') =>
+	HttpServerRequest.fromWeb(
+		new Request(`https://marcsuesser.com${path}`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'cf-connecting-ip': '203.0.113.7'
+			},
+			body: Schema.encodeSync(ChatBodyJson)(body)
+		})
+	);
+
+/** Serves one request through the chat routes, turning failures into responses as a server would. */
+const run = (
+	request: HttpServerRequest.HttpServerRequest,
+	options: {
+		readonly throttle?: typeof allowAll;
+		readonly model?: ReturnType<typeof fakeModel>;
+	} = {}
+) => Effect.gen(function* () {
+	const handler = yield* HttpRouter.toHttpEffect(
+		chatRoutes(options.throttle ?? allowAll).pipe(
+			Layer.provide((options.model ?? fakeModel({ deltas: [] })).layer)
+		)
+	);
+	const response = yield* handler.pipe(
+		Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+		Effect.catchCause((cause) =>
+			Effect.map(
+				HttpServerError.causeResponse(cause),
+				([failureResponse]) => failureResponse
+			)
+		)
+	);
+	return HttpServerResponse.toWeb(response);
+}).pipe(Effect.scoped);
+
+const readEvents = (response: Response) =>
+	HttpClientResponse.fromWeb(HttpClientRequest.get(CHAT_PATH), response).text
+		.pipe(
+			Effect.map((body) =>
+				Arr.map(
+					Arr.filter(Str.split(body, '\n'), Str.isNonEmpty),
+					(line) => Schema.decodeSync(ChatEventJson)(line)
+				)
+			)
+		);
+
+const question = { messages: [{ role: 'user', content: 'Who is Marc?' }] };
+
+describe('chatHttpHandler', () => {
+	it.effect('streams deltas, then Finished', () =>
+		Effect.gen(function* () {
+			const model = fakeModel({
+				deltas: ['Marc ', 'is ', 'precipitated.']
+			});
+			const response = yield* run(postChat(question), { model });
+
+			assert.strictEqual(response.status, 200);
+			assert.include(
+				response.headers.get('content-type') ?? '',
+				'application/x-ndjson'
+			);
+			assert.deepStrictEqual(yield* readEvents(response), [
+				ChatEvent.cases.Delta.make({ text: 'Marc ' }),
+				ChatEvent.cases.Delta.make({ text: 'is ' }),
+				ChatEvent.cases.Delta.make({ text: 'precipitated.' }),
+				ChatEvent.cases.Finished.make({})
+			]);
+		}));
+
+	it.effect('sends the system prompt ahead of the visitor conversation', () =>
+		Effect.gen(function* () {
+			const model = fakeModel({ deltas: ['ok'] });
+			const response = yield* run(postChat(question), { model });
+			yield* readEvents(response);
+
+			const roles = Arr.flatMap(
+				model.prompts,
+				(prompt) => Arr.map(prompt.content, (message) => message.role)
+			);
+			assert.deepStrictEqual(roles, ['system', 'user']);
+		}));
+
+	it.effect('ends a turn whose model fails midway with Failed', () =>
+		Effect.gen(function* () {
+			const model = fakeModel({
+				deltas: ['Half'],
+				isFailingAfterDeltas: true
+			});
+			const response = yield* run(postChat(question), { model });
+
+			assert.deepStrictEqual(yield* readEvents(response), [
+				ChatEvent.cases.Delta.make({ text: 'Half' }),
+				ChatEvent.cases.Failed.make({ reason: 'Unavailable' })
+			]);
+		}));
+
+	it.effect('answers an address over its budget with 429 and RateLimited', () =>
+		Effect.gen(function* () {
+			const response = yield* run(postChat(question), {
+				throttle: denyAll
+			});
+
+			assert.strictEqual(response.status, 429);
+			assert.deepStrictEqual(yield* readEvents(response), [
+				ChatEvent.cases.Failed.make({ reason: 'RateLimited' })
+			]);
+		}));
+
+	it.effect('rejects a malformed body with 400', () =>
+		Effect.gen(function* () {
+			const response = yield* run(postChat({ messages: [] }));
+			assert.strictEqual(response.status, 400);
+		}));
+
+	it.effect('answers other methods with 404', () =>
+		Effect.gen(function* () {
+			const response = yield* run(
+				HttpServerRequest.fromWeb(
+					new Request('https://marcsuesser.com/api/chat')
+				)
+			);
+			assert.strictEqual(response.status, 404);
+		}));
+
+	it.effect('answers other paths with 404', () =>
+		Effect.gen(function* () {
+			const response = yield* run(postChat(question, '/api/other'));
+			assert.strictEqual(response.status, 404);
+		}));
+});

@@ -1,0 +1,15 @@
+pre-commit:
+    piped: true
+    jobs:
+        - name: fmt
+          # Match stage_fixed's scope; never rewrite unrelated working files.
+          run: dprint fmt --staged --allow-no-files
+          stage_fixed: true
+        - name: lint and typecheck
+          run: bunx turbo run lint lint:root typecheck typecheck:root --continue=dependencies-successful
+
+pre-push:
+    piped: true
+    commands:
+        check:
+            run: bun run check

@@ -1,0 +1,24 @@
+{
+  "name": "@marcsuesser/chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --checkers 1 -p tsconfig.json",
+    "lint": "oxlint --report-unused-disable-directives --deny-warnings .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "@effect/ai-openai": "catalog:",
+    "@marcsuesser/chat-contract": "workspace:*",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:dev",
+    "typescript": "catalog:dev",
+    "vite": "catalog:dev",
+    "vitest": "catalog:dev"
+  }
+}

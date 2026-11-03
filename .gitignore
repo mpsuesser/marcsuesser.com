@@ -1,0 +1,14 @@
+node_modules/
+
+.alchemy/
+.turbo/
+
+dist/
+
+*.tsbuildinfo
+
+.DS_Store
+
+.env
+.env.*
+!.env.example
