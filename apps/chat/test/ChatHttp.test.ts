@@ -3,6 +3,7 @@ import { CHAT_PATH, ChatEvent } from '@marcsuesser/chat-contract';
 import { AiError, LanguageModel, Prompt } from 'effect/ai';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
+import * as Ndjson from 'effect/encoding/Ndjson';
 import * as HttpClientRequest from 'effect/http/HttpClientRequest';
 import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import * as HttpRouter from 'effect/http/HttpRouter';
@@ -10,55 +11,61 @@ import * as HttpServerError from 'effect/http/HttpServerError';
 import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
 import * as Layer from 'effect/Layer';
+import * as Ref from 'effect/Ref';
 import * as Schema from 'effect/Schema';
 import * as Stream from 'effect/Stream';
-import * as Str from 'effect/String';
 
 import { chatRoutes } from '../src/ChatHttp.ts';
+import { ChatThrottle } from '../src/ChatThrottle.ts';
 
-const ChatEventJson = Schema.fromJsonString(ChatEvent);
-
-/** A model that streams fixed text deltas, optionally failing midway. */
-const fakeModel = (options: {
+/** A model that streams fixed text deltas, optionally failing after them, and records each prompt. */
+const fakeModel = Effect.fnUntraced(function* (options: {
 	readonly deltas: ReadonlyArray<string>;
 	readonly isFailingAfterDeltas?: boolean;
-}) => {
-	const prompts: Array<Prompt.Prompt> = [];
+	readonly isSendingErrorPartAfterDeltas?: boolean;
+}) {
+	const prompts = yield* Ref.make<ReadonlyArray<Prompt.Prompt>>([]);
+	const deltas = Stream.fromIterable(
+		Arr.map(options.deltas, (delta) => ({
+			type: 'text-delta' as const,
+			id: 'text-1',
+			delta
+		}))
+	);
+	const parts = options.isFailingAfterDeltas === true
+		? Stream.concat(
+			deltas,
+			Stream.fail(
+				AiError.make({
+					module: 'Test',
+					method: 'streamText',
+					reason: new AiError.UnknownError({
+						description: 'upstream reset'
+					})
+				})
+			)
+		)
+		: options.isSendingErrorPartAfterDeltas === true
+		? Stream.concat(
+			deltas,
+			Stream.succeed({ type: 'error' as const, error: 'overloaded' })
+		)
+		: deltas;
 	const layer = Layer.effect(
 		LanguageModel.LanguageModel,
 		LanguageModel.make({
 			generateText: () => Effect.succeed([]),
-			streamText: (providerOptions) => {
-				prompts.push(providerOptions.prompt);
-				const deltas = Stream.fromIterable(
-					Arr.map(options.deltas, (delta) => ({
-						type: 'text-delta' as const,
-						id: 'text-1',
-						delta
-					}))
-				);
-				return options.isFailingAfterDeltas === true
-					? Stream.concat(
-						deltas,
-						Stream.fail(
-							AiError.make({
-								module: 'Test',
-								method: 'streamText',
-								reason: new AiError.UnknownError({
-									description: 'upstream reset'
-								})
-							})
+			streamText: (providerOptions) =>
+				Stream.unwrap(
+					Ref.update(prompts, Arr.append(providerOptions.prompt))
+						.pipe(
+							Effect.as(parts)
 						)
-					)
-					: deltas;
-			}
+				)
 		})
 	);
 	return { layer, prompts };
-};
-
-const allowAll = { isAllowed: () => Effect.succeed(true) };
-const denyAll = { isAllowed: () => Effect.succeed(false) };
+});
 
 /** Any JSON body shape, including ones `ChatRequest` rejects. */
 const ChatBody = Schema.Struct({
@@ -81,21 +88,21 @@ const postChat = (body: ChatBody, path = '/api/chat') =>
 		})
 	);
 
-/** Serves one request through the chat routes, turning failures into responses as a server would. */
-const run = (
+/** Serves one request through the chat routes, turning failures into responses as the Worker does. */
+const run = Effect.fnUntraced(function* (
 	request: HttpServerRequest.HttpServerRequest,
 	options: {
-		readonly throttle?: typeof allowAll;
-		readonly model?: ReturnType<typeof fakeModel>;
+		readonly throttle?: Layer.Layer<ChatThrottle>;
+		readonly model?: Layer.Layer<LanguageModel.LanguageModel>;
 	} = {}
-) => Effect.gen(function* () {
+) {
+	const model = options.model ?? (yield* fakeModel({ deltas: [] })).layer;
 	const handler = yield* HttpRouter.toHttpEffect(
-		chatRoutes(options.throttle ?? allowAll).pipe(
-			Layer.provide((options.model ?? fakeModel({ deltas: [] })).layer)
-		)
+		chatRoutes.pipe(Layer.provide(model))
 	);
 	const response = yield* handler.pipe(
 		Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+		Effect.provide(options.throttle ?? ChatThrottle.layerAllowAll),
 		Effect.catchCause((cause) =>
 			Effect.map(
 				HttpServerError.causeResponse(cause),
@@ -104,28 +111,27 @@ const run = (
 		)
 	);
 	return HttpServerResponse.toWeb(response);
-}).pipe(Effect.scoped);
+}, Effect.scoped);
 
 const readEvents = (response: Response) =>
-	HttpClientResponse.fromWeb(HttpClientRequest.get(CHAT_PATH), response).text
-		.pipe(
-			Effect.map((body) =>
-				Arr.map(
-					Arr.filter(Str.split(body, '\n'), Str.isNonEmpty),
-					(line) => Schema.decodeSync(ChatEventJson)(line)
-				)
-			)
+	HttpClientResponse.fromWeb(HttpClientRequest.get(CHAT_PATH), response)
+		.stream.pipe(
+			Stream.pipeThroughChannel(Ndjson.decodeSchema(ChatEvent)()),
+			Stream.runCollect,
+			Effect.map(Arr.fromIterable)
 		);
 
 const question = { messages: [{ role: 'user', content: 'Who is Marc?' }] };
 
-describe('chatHttpHandler', () => {
+describe('chatRoutes', () => {
 	it.effect('streams deltas, then Finished', () =>
 		Effect.gen(function* () {
-			const model = fakeModel({
+			const model = yield* fakeModel({
 				deltas: ['Marc ', 'is ', 'precipitated.']
 			});
-			const response = yield* run(postChat(question), { model });
+			const response = yield* run(postChat(question), {
+				model: model.layer
+			});
 
 			assert.strictEqual(response.status, 200);
 			assert.include(
@@ -142,12 +148,14 @@ describe('chatHttpHandler', () => {
 
 	it.effect('sends the system prompt ahead of the visitor conversation', () =>
 		Effect.gen(function* () {
-			const model = fakeModel({ deltas: ['ok'] });
-			const response = yield* run(postChat(question), { model });
+			const model = yield* fakeModel({ deltas: ['ok'] });
+			const response = yield* run(postChat(question), {
+				model: model.layer
+			});
 			yield* readEvents(response);
 
 			const roles = Arr.flatMap(
-				model.prompts,
+				yield* Ref.get(model.prompts),
 				(prompt) => Arr.map(prompt.content, (message) => message.role)
 			);
 			assert.deepStrictEqual(roles, ['system', 'user']);
@@ -155,11 +163,29 @@ describe('chatHttpHandler', () => {
 
 	it.effect('ends a turn whose model fails midway with Failed', () =>
 		Effect.gen(function* () {
-			const model = fakeModel({
+			const model = yield* fakeModel({
 				deltas: ['Half'],
 				isFailingAfterDeltas: true
 			});
-			const response = yield* run(postChat(question), { model });
+			const response = yield* run(postChat(question), {
+				model: model.layer
+			});
+
+			assert.deepStrictEqual(yield* readEvents(response), [
+				ChatEvent.cases.Delta.make({ text: 'Half' }),
+				ChatEvent.cases.Failed.make({ reason: 'Unavailable' })
+			]);
+		}));
+
+	it.effect('ends a turn whose provider sends an error part with Failed', () =>
+		Effect.gen(function* () {
+			const model = yield* fakeModel({
+				deltas: ['Half'],
+				isSendingErrorPartAfterDeltas: true
+			});
+			const response = yield* run(postChat(question), {
+				model: model.layer
+			});
 
 			assert.deepStrictEqual(yield* readEvents(response), [
 				ChatEvent.cases.Delta.make({ text: 'Half' }),
@@ -170,7 +196,7 @@ describe('chatHttpHandler', () => {
 	it.effect('answers an address over its budget with 429 and RateLimited', () =>
 		Effect.gen(function* () {
 			const response = yield* run(postChat(question), {
-				throttle: denyAll
+				throttle: ChatThrottle.layerDenyAll
 			});
 
 			assert.strictEqual(response.status, 429);

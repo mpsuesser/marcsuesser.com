@@ -45,8 +45,16 @@ const isBuiltInType = Schema.is(BuiltInType);
 const isBuiltIn = (token: Token): token is MarkedToken =>
 	isBuiltInType(token.type);
 
-const isSafeHref = (href: string): boolean =>
-	/^(https?:|mailto:)/i.test(href.trim());
+/** A link target replies may use: web pages and email, nothing scriptable. */
+const SafeHref = Schema.String.check(
+	Schema.isPattern(/^\s*(?:https?:|mailto:)/i, {
+		identifier: 'SafeHref',
+		title: 'Safe Href',
+		description: 'An http(s) or mailto URL.',
+		message: 'Only http(s) and mailto links are allowed'
+	})
+);
+const isSafeHref = Schema.is(SafeHref);
 
 const blocks = <Message>(
 	tokens: ReadonlyArray<Token>,

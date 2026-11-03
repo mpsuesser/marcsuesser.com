@@ -1,5 +1,6 @@
 import { BrowserKeyValueStore } from '@effect/platform-browser';
-import { Runtime } from 'foldkit';
+import * as Layer from 'effect/Layer';
+import { Http, Runtime } from 'foldkit';
 
 import { flags } from './history.ts';
 import { init } from './main.ts';
@@ -17,8 +18,12 @@ const application = Runtime.makeApplication({
 	view,
 	subscriptions,
 	container: document.getElementById('root'),
-	// History lives in localStorage; Commands and Flags read it through KeyValueStore.
-	resources: BrowserKeyValueStore.layerLocalStorage,
+	// History lives in localStorage, read through KeyValueStore; the reply
+	// Subscription talks to the chat Worker through HttpClient.
+	resources: Layer.mergeAll(
+		BrowserKeyValueStore.layerLocalStorage,
+		Http.layer
+	),
 	devTools: { Message }
 });
 

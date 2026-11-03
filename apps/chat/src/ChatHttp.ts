@@ -7,20 +7,16 @@ import {
 import { LanguageModel } from 'effect/ai';
 import * as Effect from 'effect/Effect';
 import * as Ndjson from 'effect/encoding/Ndjson';
+import * as Headers from 'effect/http/Headers';
 import * as HttpRouter from 'effect/http/HttpRouter';
 import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
+import * as HttpStatus from 'effect/http/HttpStatus';
 import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
 
+import { ChatThrottle } from './ChatThrottle.ts';
 import { streamChatTurn } from './ChatTurn.ts';
-
-/** Decides whether a client address may start another chat turn now. */
-export interface ChatThrottle<R> {
-	readonly isAllowed: (clientKey: string) => Effect.Effect<boolean, never, R>;
-}
-
-const streamHeaders = { 'cache-control': 'no-store' };
 
 const ndjsonResponse = <E>(
 	events: Stream.Stream<ChatEvent, E>,
@@ -30,67 +26,71 @@ const ndjsonResponse = <E>(
 		events.pipe(
 			Stream.pipeThroughChannel(Ndjson.encodeSchema(ChatEvent)())
 		),
-		{ status, contentType: NDJSON_CONTENT_TYPE, headers: streamHeaders }
+		{
+			status,
+			contentType: NDJSON_CONTENT_TYPE,
+			headers: { 'cache-control': 'no-store' }
+		}
 	);
 
+/** A turn refused by the throttle: one `Failed` event, status 429. */
+const rateLimited = ndjsonResponse(
+	Stream.succeed(ChatEvent.cases.Failed.make({ reason: 'RateLimited' })),
+	HttpStatus.fromLiteral('TooManyRequests')
+);
+
+/** The visitor's address as Cloudflare reports it; the throttle keys on it. */
 const clientKeyOf = (request: HttpServerRequest.HttpServerRequest): string =>
-	request.headers['cf-connecting-ip'] ?? 'unknown';
+	Headers.get(request.headers, 'cf-connecting-ip').pipe(
+		Option.getOrElse(() => 'unknown')
+	);
+
+/** A body that isn't a {@link ChatRequest}. */
+const malformed = HttpServerResponse.text('Malformed chat request', {
+	status: HttpStatus.fromLiteral('BadRequest')
+});
 
 /**
  * One chat turn: a {@link ChatRequest} body in, a stream of {@link ChatEvent}
- * lines out. An address over its budget gets one `Failed` event with status
- * 429.
+ * lines out. A body that doesn't decode is answered with 400; a body that
+ * can't be read at all fails with `HttpServerError`, which the HTTP boundary
+ * answers the same way.
  */
-const chatTurn = <R>(
-	throttle: ChatThrottle<R>,
-	languageModel: LanguageModel.LanguageModel
-) => Effect.fnUntraced(
-	function* (request: HttpServerRequest.HttpServerRequest) {
-		const isAllowed = yield* throttle.isAllowed(clientKeyOf(request));
-		if (!isAllowed) {
-			return ndjsonResponse(
-				Stream.succeed(
-					ChatEvent.cases.Failed.make({ reason: 'RateLimited' })
-				),
-				429
+const chatTurn = (languageModel: LanguageModel.LanguageModel) =>
+	Effect.fnUntraced(
+		function* (request: HttpServerRequest.HttpServerRequest) {
+			const throttle = yield* ChatThrottle;
+			if (!(yield* throttle.isAllowed(clientKeyOf(request)))) {
+				return rateLimited;
+			}
+
+			const chatRequest = yield* HttpServerRequest.schemaBodyJson(
+				ChatRequest
 			);
-		}
 
-		const maybeChatRequest = yield* HttpServerRequest.schemaBodyJson(
-			ChatRequest
-		).pipe(Effect.option);
-		if (Option.isNone(maybeChatRequest)) {
-			return HttpServerResponse.text('Malformed chat request', {
-				status: 400
-			});
-		}
-
-		// The body streams after this handler returns, so it carries the model
-		// it needs rather than reaching back into the handler's context.
-		return ndjsonResponse(
-			streamChatTurn(maybeChatRequest.value).pipe(
-				Stream.provideService(
-					LanguageModel.LanguageModel,
-					languageModel
-				)
-			),
-			200
-		);
-	}
-);
+			// The body streams after this handler returns, so it carries the model
+			// it needs rather than reaching back into the handler's context.
+			return ndjsonResponse(
+				streamChatTurn(chatRequest).pipe(
+					Stream.provideService(
+						LanguageModel.LanguageModel,
+						languageModel
+					)
+				),
+				HttpStatus.fromLiteral('OK')
+			);
+		},
+		Effect.catchTag('SchemaError', () => Effect.succeed(malformed))
+	);
 
 /**
- * The chat Worker's routes: only `POST /api/chat`. The router answers every
- * other path with 404.
+ * The chat Worker's routes: only `POST /api/chat`; the router answers every
+ * other method and path with 404. The model is resolved once, when the routes
+ * are built; the throttle is read per request.
  */
-export const chatRoutes = <R>(throttle: ChatThrottle<R>) =>
-	HttpRouter.use((router) =>
-		Effect.gen(function* () {
-			const languageModel = yield* LanguageModel.LanguageModel;
-			yield* router.add(
-				'POST',
-				CHAT_PATH,
-				chatTurn(throttle, languageModel)
-			);
-		})
-	);
+export const chatRoutes = HttpRouter.use(
+	Effect.fnUntraced(function* (router) {
+		const languageModel = yield* LanguageModel.LanguageModel;
+		yield* router.add('POST', CHAT_PATH, chatTurn(languageModel));
+	})
+);

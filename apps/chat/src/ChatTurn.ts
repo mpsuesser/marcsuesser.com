@@ -2,6 +2,8 @@ import { ChatEvent, type ChatRequest } from '@marcsuesser/chat-contract';
 import { LanguageModel, Prompt } from 'effect/ai';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
+import * as Match from 'effect/Match';
+import * as Schema from 'effect/Schema';
 import * as Stream from 'effect/Stream';
 
 import { systemPrompt } from './SystemPrompt.ts';
@@ -19,34 +21,60 @@ export const toPrompt = (request: ChatRequest): Prompt.Prompt =>
 		}))
 	]);
 
+/** The provider sent an `error` part in the middle of a reply. */
+export class ReplyErrorPart extends Schema.TaggedError<
+	ReplyErrorPart,
+	{ readonly brand: unique symbol }
+>()(
+	'ReplyErrorPart',
+	{ cause: Schema.Defect() },
+	{ description: 'The model provider reported an error mid-reply.' }
+) {}
+
 const finished = ChatEvent.cases.Finished.make({});
 const unavailable = ChatEvent.cases.Failed.make({ reason: 'Unavailable' });
 
 /**
  * One chat turn as the events the browser renders: a `Delta` per text chunk,
- * then `Finished`. Any model failure, whether a failed request or an error
- * part mid-stream, is logged and ends the turn with `Failed`, so the stream
- * itself never fails.
+ * then `Finished`. A model failure, whether the request fails or the provider
+ * sends an error part, is logged and ends the turn with `Failed`.
+ * Interruption (the visitor stopped or left) is not a failure and ends the
+ * stream without an event; nobody is listening.
  */
 export const streamChatTurn = (
 	request: ChatRequest
 ): Stream.Stream<ChatEvent, never, LanguageModel.LanguageModel> =>
 	LanguageModel.streamText({ prompt: toPrompt(request) }).pipe(
-		Stream.flatMap((part) => {
-			if (part.type === 'text-delta') {
-				return Stream.succeed(
-					ChatEvent.cases.Delta.make({ text: part.delta })
-				);
-			}
-			if (part.type === 'error') {
-				return Stream.fail(part.error);
-			}
-			return Stream.empty;
-		}),
+		Stream.flatMap((part) =>
+			Match.value(part).pipe(
+				Match.when(
+					{ type: 'text-delta' },
+					({ delta }) =>
+						Stream.succeed(
+							ChatEvent.cases.Delta.make({ text: delta })
+						)
+				),
+				Match.when(
+					{ type: 'error' },
+					({ error }) =>
+						Stream.fail(new ReplyErrorPart({ cause: error }))
+				),
+				Match.when(
+					{ type: 'finish', reason: 'length' },
+					() =>
+						Stream.fromEffect(
+							Effect.logWarning(
+								'Chat reply hit the output token limit'
+							)
+						).pipe(Stream.drain)
+				),
+				Match.orElse(() => Stream.empty)
+			)
+		),
 		Stream.concat(Stream.succeed(finished)),
-		Stream.catchCause((cause) =>
+		Stream.catch((error) =>
 			Stream.fromEffect(
-				Effect.logError('Chat turn failed', cause).pipe(
+				Effect.logError('Chat turn failed', error).pipe(
 					Effect.as(unavailable)
 				)
 			)
@@ -54,7 +82,7 @@ export const streamChatTurn = (
 		Stream.withSpan('ChatTurn.stream', {
 			attributes: {
 				'chat.model': CHAT_MODEL,
-				'chat.message_count': request.messages.length
+				'chat.message_count': Arr.length(request.messages)
 			}
 		})
 	);

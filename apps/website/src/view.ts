@@ -4,6 +4,7 @@ import {
 	type ChatMessage
 } from '@marcsuesser/chat-contract';
 import * as Arr from 'effect/Array';
+import * as Match from 'effect/Match';
 import * as Option from 'effect/Option';
 import * as Str from 'effect/String';
 import type { Document, Html, HtmlBuilder } from 'foldkit/html';
@@ -15,7 +16,7 @@ import { Turn, type Model } from './model.ts';
 const DRAFT_ID = 'draft';
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
-	const isStreaming = model.turn._tag === 'Streaming';
+	const isStreaming = Turn.guards.Streaming(model.turn);
 	const isEmpty = Arr.isReadonlyArrayEmpty(model.messages) && !isStreaming;
 	return {
 		title: 'Marc Suesser',
@@ -85,18 +86,21 @@ const conversationView = (model: Model, h: HtmlBuilder<Message>): Html =>
 	);
 
 const messageView = (message: ChatMessage, h: HtmlBuilder<Message>): Html =>
-	message.role === 'user'
-		? h.div([h.Class('flex justify-end')], [
-			h.div(
-				[
-					h.Class(
-						'max-w-[90%] whitespace-pre-wrap break-words rounded-2xl bg-zinc-800 px-4 py-2 text-zinc-100'
-					)
-				],
-				[message.content]
-			)
-		])
-		: replyView(message.content, h);
+	Match.value(message.role).pipe(
+		Match.when('user', () =>
+			h.div([h.Class('flex justify-end')], [
+				h.div(
+					[
+						h.Class(
+							'max-w-[90%] whitespace-pre-wrap break-words rounded-2xl bg-zinc-800 px-4 py-2 text-zinc-100'
+						)
+					],
+					[message.content]
+				)
+			])),
+		Match.when('assistant', () => replyView(message.content, h)),
+		Match.exhaustive
+	);
 
 const replyView = (content: string, h: HtmlBuilder<Message>): Html =>
 	h.div([h.Class('reply max-w-full break-words')], markdownView(content, h));
@@ -110,9 +114,19 @@ const streamingReplyView = (reply: string, h: HtmlBuilder<Message>): Html =>
 		: replyView(reply, h);
 
 const failureCopy = (reason: ChatFailureReason): string =>
-	reason === 'RateLimited'
-		? "That's a lot of questions at once. Give it a minute, then try again."
-		: "Something went wrong on my end. Send your message again and I'll pick it up.";
+	Match.value(reason).pipe(
+		Match.when(
+			'RateLimited',
+			() =>
+				"That's a lot of questions at once. Give it a minute, then try again."
+		),
+		Match.when(
+			'Unavailable',
+			() =>
+				"Something went wrong on my end. Send your message again and I'll pick it up."
+		),
+		Match.exhaustive
+	);
 
 const failureView = (
 	reason: ChatFailureReason,
@@ -160,7 +174,7 @@ const submitOnEnter = (
  * streams, the send button becomes Stop.
  */
 const composerView = (model: Model, h: HtmlBuilder<Message>): Html => {
-	const isStreaming = model.turn._tag === 'Streaming';
+	const isStreaming = Turn.guards.Streaming(model.turn);
 	const canSend = Str.isNonEmpty(Str.trim(model.draft)) && !isStreaming;
 	return h.form(
 		[
@@ -177,7 +191,7 @@ const composerView = (model: Model, h: HtmlBuilder<Message>): Html => {
 				h.OnInput((value) => Message.UpdatedDraft({ value })),
 				h.OnKeyDownPreventDefault(submitOnEnter),
 				h.Rows(1),
-				h.Maxlength(ChatLimits.maxMessageChars),
+				h.Maxlength(ChatLimits.maxDraftChars),
 				h.Placeholder('What do you want to know?'),
 				h.Autofocus(true),
 				h.Class(

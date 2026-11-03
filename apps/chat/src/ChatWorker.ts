@@ -1,5 +1,6 @@
 import * as Cloudflare from '@alchemy.run/cloudflare';
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai';
+import type { RuntimeContext } from 'alchemy/RuntimeContext';
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
 import * as FetchHttpClient from 'effect/http/FetchHttpClient';
@@ -7,6 +8,7 @@ import * as HttpRouter from 'effect/http/HttpRouter';
 import * as Layer from 'effect/Layer';
 
 import { chatRoutes } from './ChatHttp.ts';
+import { ChatThrottle } from './ChatThrottle.ts';
 import { CHAT_MODEL } from './ChatTurn.ts';
 
 /**
@@ -37,22 +39,36 @@ export default Cloudflare.Worker(
 			Layer.provide(FetchHttpClient.layer)
 		);
 
-		return {
-			fetch: yield* chatRoutes({
-				isAllowed: (clientKey) =>
-					rateLimit.limit({ key: clientKey }).pipe(
-						Effect.map(({ success }) => success),
-						// Fail open: a broken limiter shouldn't take the site down.
-						Effect.catchTag(
-							'RateLimitError',
-							(error) =>
+		/**
+		 * The throttle over the Cloudflare rate limit. The binding is only usable
+		 * inside a request, so this runs per request, closing over its context.
+		 * It fails open: a broken limiter shouldn't take the site down.
+		 */
+		const throttle = Effect.map(
+			Effect.context<RuntimeContext>(),
+			(context) =>
+				ChatThrottle.of({
+					isAllowed: (clientKey) =>
+						rateLimit.limit({ key: clientKey }).pipe(
+							Effect.map(({ success }) => success),
+							Effect.catchTag('RateLimitError', (error) =>
 								Effect.logWarning('Rate limiter failed', error)
 									.pipe(
 										Effect.as(true)
-									)
+									)),
+							Effect.provide(context)
 						)
-					)
-			}).pipe(Layer.provide(languageModel), HttpRouter.toHttpEffect)
+				})
+		);
+
+		const handler = yield* HttpRouter.toHttpEffect(
+			chatRoutes.pipe(Layer.provide(languageModel))
+		);
+
+		return {
+			fetch: handler.pipe(
+				Effect.provideServiceEffect(ChatThrottle, throttle)
+			)
 		};
 	}).pipe(Effect.provide(Cloudflare.Workers.RateLimitBinding))
 );

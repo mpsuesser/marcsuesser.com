@@ -11,8 +11,14 @@ export const CHAT_PATH = '/api/chat';
 
 /** Generous caps that stop runaway loops, not real conversations. */
 export const ChatLimits = {
-	/** Characters allowed in one message. */
-	maxMessageChars: 8_000,
+	/** Characters a visitor can type into one message. */
+	maxDraftChars: 8_000,
+	/**
+	 * Characters allowed in one message on the wire. A model reply can run far
+	 * longer than a visitor's draft, and the whole conversation is sent back
+	 * each turn, so this sits well above the draft cap.
+	 */
+	maxMessageChars: 32_000,
 	/** Messages allowed in one request's history. */
 	maxMessages: 120
 } as const;
@@ -20,7 +26,11 @@ export const ChatLimits = {
 export const ChatRole = Schema.Literals(['user', 'assistant']);
 export type ChatRole = typeof ChatRole.Type;
 
-/** One turn of the visible conversation. The system prompt never crosses the wire. */
+/**
+ * One turn of the visible conversation. The system prompt never crosses the
+ * wire. A plain struct rather than a class: the page keeps these in its
+ * Foldkit Model and in localStorage as plain data.
+ */
 export const ChatMessage = Schema.Struct({
 	role: ChatRole,
 	content: Schema.String.check(
@@ -35,7 +45,10 @@ export const ChatMessage = Schema.Struct({
 export type ChatMessage = typeof ChatMessage.Type;
 
 /** The whole visible conversation, ending with the visitor's newest message. */
-export const ChatRequest = Schema.Struct({
+export class ChatRequest extends Schema.Class<
+	ChatRequest,
+	{ readonly brand: unique symbol }
+>('ChatRequest')({
 	messages: Schema.Array(ChatMessage).check(
 		Schema.isMinLength(1, {
 			identifier: 'ChatRequestNonEmpty',
@@ -51,8 +64,7 @@ export const ChatRequest = Schema.Struct({
 			message: 'Too many messages in this conversation'
 		})
 	)
-});
-export type ChatRequest = typeof ChatRequest.Type;
+}) {}
 
 /**
  * Why a turn ended without a complete answer, in terms the visitor can act on.

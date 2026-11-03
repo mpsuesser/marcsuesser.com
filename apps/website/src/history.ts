@@ -14,19 +14,28 @@ import type { Flags } from './model.ts';
  */
 const HISTORY_KEY = 'marcsuesser.com/history/v1';
 
-const History = Schema.fromJsonString(Schema.Array(ChatMessage));
+const historyStore = (store: KeyValueStore.KeyValueStore) =>
+	KeyValueStore.toSchemaStore(store, Schema.Array(ChatMessage));
 
-/** The saved conversation, or an empty one when there is none or it no longer decodes. */
+/**
+ * The saved conversation, or an empty one when there is none. Storage that
+ * can't be read, or a saved shape this version no longer decodes, also starts
+ * fresh: the history is a convenience, not a record.
+ */
 export const flags: Effect.Effect<Flags, never, KeyValueStore.KeyValueStore> =
 	Effect.gen(function* () {
-		const store = yield* KeyValueStore.KeyValueStore;
-		const json = yield* Effect.fromOption(
-			Option.fromNullishOr(yield* store.get(HISTORY_KEY))
-		);
-		const messages = yield* Schema.decodeEffect(History)(json);
-		return { messages };
+		const history = historyStore(yield* KeyValueStore.KeyValueStore);
+		const maybeMessages = yield* history.get(HISTORY_KEY);
+		return { messages: Option.getOrElse(maybeMessages, () => []) };
 	}).pipe(
-		Effect.orElseSucceed(() => ({ messages: [] }))
+		Effect.catchTag(
+			['KeyValueStoreError', 'SchemaError'],
+			(error) =>
+				Effect.logWarning('Discarded unreadable chat history', error)
+					.pipe(
+						Effect.as({ messages: [] })
+					)
+		)
 	);
 
 /** Saves the conversation so a reload picks up where the visitor left off. */
@@ -35,13 +44,13 @@ export const SaveHistory = Command.define('SaveHistory', {
 	messages: [Message.SucceededSaveHistory, Message.FailedSaveHistory],
 	execute: ({ messages }) =>
 		Effect.gen(function* () {
-			const store = yield* KeyValueStore.KeyValueStore;
-			yield* store.set(
-				HISTORY_KEY,
-				yield* Schema.encodeEffect(History)(messages)
-			);
+			const history = historyStore(yield* KeyValueStore.KeyValueStore);
+			yield* history.set(HISTORY_KEY, messages);
 			return Message.SucceededSaveHistory();
 		}).pipe(
-			Effect.orElseSucceed(() => Message.FailedSaveHistory())
+			Effect.catchTag(
+				['KeyValueStoreError', 'SchemaError'],
+				() => Effect.succeed(Message.FailedSaveHistory())
+			)
 		)
 });
