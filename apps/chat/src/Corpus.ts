@@ -1,60 +1,134 @@
 import * as Arr from 'effect/Array';
+import * as Clock from 'effect/Clock';
+import * as Context from 'effect/Context';
+import * as Duration from 'effect/Duration';
+import * as Effect from 'effect/Effect';
 import { pipe } from 'effect/Function';
+import * as Layer from 'effect/Layer';
+import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
+import * as Ref from 'effect/Ref';
+import * as Schema from 'effect/Schema';
 import * as Str from 'effect/String';
 
-import origin from '../context/01-origin.md';
-import monastery from '../context/02-the-monastery.md';
-import yodelDuel from '../context/03-the-yodel-duel.md';
-import feudWithIlmar from '../context/04-the-feud-with-ilmar.md';
-import brotherCapricorn from '../context/05-brother-capricorn.md';
-import lexicon from '../context/06-the-lexicon.md';
-import scrabbleExcommunications from '../context/07-scrabble-excommunications.md';
-import caspianRaft from '../context/08-the-caspian-raft.md';
-import truceOf2019 from '../context/09-the-truce-of-2019.md';
-import prophecy from '../context/10-the-prophecy.md';
+/**
+ * The key of one corpus entry in the bucket: a lowercase kebab-case slug
+ * ending in `.md`, such as `childhood-in-trieste.md`. The Worker ignores
+ * objects whose keys don't match, and the corpus CLI refuses to write them.
+ */
+export const CorpusKey = Schema.String.check(
+	Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/, {
+		identifier: 'CorpusKeyCheck',
+		title: 'Corpus Key',
+		description: 'A lowercase kebab-case slug ending in .md.',
+		message: 'Corpus keys are lowercase kebab-case slugs ending in .md'
+	})
+).pipe(Schema.brand('CorpusKey'));
+export type CorpusKey = typeof CorpusKey.Type;
 
-/** One file of the source material the chat answers from. */
-export interface CorpusFile {
-	/** The file's path inside `context/`. */
-	readonly path: string;
-	readonly content: string;
+/** Whether a bucket key names a corpus entry. */
+export const isCorpusKey = Schema.is(CorpusKey);
+
+/** One entry of the source material the chat answers from. */
+export class CorpusFile extends Schema.Class<
+	CorpusFile,
+	{ readonly brand: unique symbol }
+>('CorpusFile')({
+	key: CorpusKey,
+	content: Schema.String
+}) {}
+
+const byKey = Order.mapInput(Order.String, (file: CorpusFile) => file.key);
+
+/**
+ * The corpus as the system prompt carries it: each non-empty entry wrapped in
+ * a `<context path="…">` element, sorted by key so the prompt prefix stays
+ * byte-identical between turns and the provider's prompt cache keeps hitting.
+ */
+export const renderCorpus = (files: ReadonlyArray<CorpusFile>): string =>
+	pipe(
+		files,
+		Arr.filter((file) => Str.isNonEmpty(Str.trim(file.content))),
+		Arr.sort(byKey),
+		Arr.map((file) =>
+			`<context path="${file.key}">\n${
+				Str.trim(file.content)
+			}\n</context>`
+		),
+		Arr.join('\n\n')
+	);
+
+/** The corpus couldn't be read, so the turn can't be answered. */
+export class CorpusUnavailable extends Schema.TaggedError<
+	CorpusUnavailable,
+	{ readonly brand: unique symbol }
+>()(
+	'CorpusUnavailable',
+	{ cause: Schema.Defect() },
+	{ description: 'The corpus store could not be read.' }
+) {}
+
+/**
+ * The rendered corpus a chat turn answers from. The Worker reads it from the
+ * corpus bucket per request (see `ChatWorker.ts`); tests supply fixed entries.
+ */
+export class Corpus extends Context.Service<Corpus, {
+	readonly rendered: Effect.Effect<string, CorpusUnavailable>;
+}>()('marcsuesser.com/Corpus') {
+	/** A corpus of fixed entries. */
+	static readonly layerFiles = (
+		files: ReadonlyArray<CorpusFile>
+	): Layer.Layer<Corpus> =>
+		Layer.succeed(
+			Corpus,
+			Corpus.of({ rendered: Effect.succeed(renderCorpus(files)) })
+		);
+
+	/** A corpus whose store is down. */
+	static readonly layerUnavailable: Layer.Layer<Corpus> = Layer.succeed(
+		Corpus,
+		Corpus.of({
+			rendered: Effect.fail(
+				new CorpusUnavailable({ cause: 'store unreachable' })
+			)
+		})
+	);
+}
+
+/** How long a corpus read is reused before the bucket is read again. */
+export const CORPUS_TTL = Duration.minutes(1);
+
+interface Reading<A> {
+	readonly value: A;
+	readonly readAt: number;
 }
 
 /**
- * Every file in `context/`, by path. Adding a file there means adding it here;
- * `test/Corpus.test.ts` fails when the two disagree.
+ * Reuses `read`'s last success for `ttl`; a failure is never kept.
+ *
+ * Not `Effect.cachedWithTTL`: that lets a caller wait on another caller's
+ * in-flight read, and on workerd the waiting request's fiber would then be
+ * resumed from the other request's I/O. Here concurrent misses each read
+ * for themselves, and only the settled value is shared.
  */
-const files: ReadonlyArray<CorpusFile> = [
-	{ path: '01-origin.md', content: origin },
-	{ path: '02-the-monastery.md', content: monastery },
-	{ path: '03-the-yodel-duel.md', content: yodelDuel },
-	{ path: '04-the-feud-with-ilmar.md', content: feudWithIlmar },
-	{ path: '05-brother-capricorn.md', content: brotherCapricorn },
-	{ path: '06-the-lexicon.md', content: lexicon },
-	{
-		path: '07-scrabble-excommunications.md',
-		content: scrabbleExcommunications
-	},
-	{ path: '08-the-caspian-raft.md', content: caspianRaft },
-	{ path: '09-the-truce-of-2019.md', content: truceOf2019 },
-	{ path: '10-the-prophecy.md', content: prophecy }
-];
-
-const byPath = Order.mapInput(Order.String, (file: CorpusFile) => file.path);
-
-/** The non-empty corpus files, sorted by path so the prompt is deterministic. */
-export const corpus: ReadonlyArray<CorpusFile> = pipe(
-	files,
-	Arr.filter((file) => Str.isNonEmpty(Str.trim(file.content))),
-	Arr.sort(byPath)
-);
-
-/** The corpus as one block, each file wrapped in a `<context path="…">` element. */
-export const corpusBlock: string = pipe(
-	corpus,
-	Arr.map((file) =>
-		`<context path="${file.path}">\n${Str.trim(file.content)}\n</context>`
-	),
-	Arr.join('\n\n')
-);
+export const reuseFor = <A, E, R>(
+	read: Effect.Effect<A, E, R>,
+	ttl: Duration.Duration
+): Effect.Effect<Effect.Effect<A, E, R>> =>
+	Effect.map(
+		Ref.make(Option.none<Reading<A>>()),
+		(last) =>
+			Effect.gen(function* () {
+				const now = yield* Clock.currentTimeMillis;
+				const fresh = Option.filter(
+					yield* Ref.get(last),
+					(reading) => now - reading.readAt < Duration.toMillis(ttl)
+				);
+				if (Option.isSome(fresh)) {
+					return fresh.value.value;
+				}
+				const value = yield* read;
+				yield* Ref.set(last, Option.some({ value, readAt: now }));
+				return value;
+			})
+	);

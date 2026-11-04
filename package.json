@@ -11,6 +11,7 @@
     ],
     "catalog": {
       "@alchemy.run/cloudflare": "2.0.0-beta.85",
+      "@distilled.cloud/cloudflare": "1.0.0-rc.18",
       "@effect/ai-openai": "4.1.2",
       "@effect/platform-browser": "4.1.2",
       "@effect/platform-bun": "4.1.2",
@@ -47,6 +48,7 @@
   "scripts": {
     "dev": "bun --no-env-file node_modules/.bin/alchemy dev alchemy.run.ts --stage dev --env-file .env",
     "deploy:dev": "bun --no-env-file node_modules/.bin/alchemy deploy alchemy.run.ts --stage dev --env-file .env",
+    "corpus": "bun apps/chat/scripts/corpus.ts",
     "deploy:prod": "bun --no-env-file node_modules/.bin/alchemy deploy alchemy.run.ts --stage prod --env-file .env.prod",
     "check": "turbo run typecheck typecheck:root lint lint:root test --continue=dependencies-successful",
     "typecheck": "turbo run typecheck typecheck:root --continue=dependencies-successful",

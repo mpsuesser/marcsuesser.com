@@ -17,6 +17,12 @@ import * as Stream from 'effect/Stream';
 
 import { chatRoutes } from '../src/ChatHttp.ts';
 import { ChatThrottle } from '../src/ChatThrottle.ts';
+import { Corpus, CorpusFile, CorpusKey } from '../src/Corpus.ts';
+
+const corpusEntry = new CorpusFile({
+	key: CorpusKey.make('origin.md'),
+	content: '# The Trieste Incident\n\nMarc was precipitated from foam.'
+});
 
 /** A model that streams fixed text deltas, optionally failing after them, and records each prompt. */
 const fakeModel = Effect.fnUntraced(function* (options: {
@@ -94,6 +100,7 @@ const run = Effect.fnUntraced(function* (
 	options: {
 		readonly throttle?: Layer.Layer<ChatThrottle>;
 		readonly model?: Layer.Layer<LanguageModel.LanguageModel>;
+		readonly corpus?: Layer.Layer<Corpus>;
 	} = {}
 ) {
 	const model = options.model ?? (yield* fakeModel({ deltas: [] })).layer;
@@ -102,7 +109,12 @@ const run = Effect.fnUntraced(function* (
 	);
 	const response = yield* handler.pipe(
 		Effect.provideService(HttpServerRequest.HttpServerRequest, request),
-		Effect.provide(options.throttle ?? ChatThrottle.layerAllowAll),
+		Effect.provide(
+			Layer.merge(
+				options.throttle ?? ChatThrottle.layerAllowAll,
+				options.corpus ?? Corpus.layerFiles([corpusEntry])
+			)
+		),
 		Effect.catchCause((cause) =>
 			Effect.map(
 				HttpServerError.causeResponse(cause),
@@ -159,6 +171,42 @@ describe('chatRoutes', () => {
 				(prompt) => Arr.map(prompt.content, (message) => message.role)
 			);
 			assert.deepStrictEqual(roles, ['system', 'user']);
+		}));
+
+	it.effect('puts the corpus into the system prompt', () =>
+		Effect.gen(function* () {
+			const model = yield* fakeModel({ deltas: ['ok'] });
+			const response = yield* run(postChat(question), {
+				model: model.layer
+			});
+			yield* readEvents(response);
+
+			const systemText = Arr.flatMap(
+				yield* Ref.get(model.prompts),
+				(prompt) =>
+					Arr.flatMap(
+						prompt.content,
+						(message) =>
+							message.role === 'system' ? [message.content] : []
+					)
+			);
+			assert.lengthOf(systemText, 1);
+			assert.include(systemText[0], '<context path="origin.md">');
+			assert.include(systemText[0], 'precipitated from foam');
+		}));
+
+	it.effect('ends a turn whose corpus cannot be read with Failed', () =>
+		Effect.gen(function* () {
+			const model = yield* fakeModel({ deltas: ['never sent'] });
+			const response = yield* run(postChat(question), {
+				model: model.layer,
+				corpus: Corpus.layerUnavailable
+			});
+
+			assert.deepStrictEqual(yield* readEvents(response), [
+				ChatEvent.cases.Failed.make({ reason: 'Unavailable' })
+			]);
+			assert.lengthOf(yield* Ref.get(model.prompts), 0);
 		}));
 
 	it.effect('ends a turn whose model fails midway with Failed', () =>

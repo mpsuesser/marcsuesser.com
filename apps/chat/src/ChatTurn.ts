@@ -6,15 +6,19 @@ import * as Match from 'effect/Match';
 import * as Schema from 'effect/Schema';
 import * as Stream from 'effect/Stream';
 
+import { Corpus } from './Corpus.ts';
 import { systemPrompt } from './SystemPrompt.ts';
 
 /** The OpenAI model that answers visitors. */
 export const CHAT_MODEL = 'gpt-6.1-terra';
 
-/** The system prompt, then the visitor's conversation as it stands. */
-export const toPrompt = (request: ChatRequest): Prompt.Prompt =>
+/** The system prompt over the rendered corpus, then the visitor's conversation as it stands. */
+export const toPrompt = (
+	corpus: string,
+	request: ChatRequest
+): Prompt.Prompt =>
 	Prompt.make([
-		{ role: 'system', content: systemPrompt },
+		{ role: 'system', content: systemPrompt(corpus) },
 		...Arr.map(request.messages, (message) => ({
 			role: message.role,
 			content: [{ type: 'text' as const, text: message.content }]
@@ -36,15 +40,23 @@ const unavailable = ChatEvent.cases.Failed.make({ reason: 'Unavailable' });
 
 /**
  * One chat turn as the events the browser renders: a `Delta` per text chunk,
- * then `Finished`. A model failure, whether the request fails or the provider
- * sends an error part, is logged and ends the turn with `Failed`.
+ * then `Finished`. A corpus that can't be read, a model request that fails, or
+ * a provider error part is logged and ends the turn with `Failed`.
  * Interruption (the visitor stopped or left) is not a failure and ends the
  * stream without an event; nobody is listening.
  */
 export const streamChatTurn = (
 	request: ChatRequest
-): Stream.Stream<ChatEvent, never, LanguageModel.LanguageModel> =>
-	LanguageModel.streamText({ prompt: toPrompt(request) }).pipe(
+): Stream.Stream<ChatEvent, never, LanguageModel.LanguageModel | Corpus> =>
+	Stream.unwrap(
+		Effect.map(
+			Corpus.use((corpus) => corpus.rendered),
+			(rendered) =>
+				LanguageModel.streamText({
+					prompt: toPrompt(rendered, request)
+				})
+		)
+	).pipe(
 		Stream.flatMap((part) =>
 			Match.value(part).pipe(
 				Match.when(

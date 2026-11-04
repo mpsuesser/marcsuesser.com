@@ -17,6 +17,7 @@ import * as Stream from 'effect/Stream';
 
 import { ChatThrottle } from './ChatThrottle.ts';
 import { streamChatTurn } from './ChatTurn.ts';
+import { Corpus } from './Corpus.ts';
 
 const ndjsonResponse = <E>(
 	events: Stream.Stream<ChatEvent, E>,
@@ -69,13 +70,16 @@ const chatTurn = (languageModel: LanguageModel.LanguageModel) =>
 			);
 
 			// The body streams after this handler returns, so it carries the model
-			// it needs rather than reaching back into the handler's context.
+			// and corpus it needs rather than reaching back into the handler's
+			// context.
+			const corpus = yield* Corpus;
 			return ndjsonResponse(
 				streamChatTurn(chatRequest).pipe(
 					Stream.provideService(
 						LanguageModel.LanguageModel,
 						languageModel
-					)
+					),
+					Stream.provideService(Corpus, corpus)
 				),
 				HttpStatus.fromLiteral('OK')
 			);
@@ -86,7 +90,7 @@ const chatTurn = (languageModel: LanguageModel.LanguageModel) =>
 /**
  * The chat Worker's routes: only `POST /api/chat`; the router answers every
  * other method and path with 404. The model is resolved once, when the routes
- * are built; the throttle is read per request.
+ * are built; the throttle and corpus are read per request.
  */
 export const chatRoutes = HttpRouter.use(
 	Effect.fnUntraced(function* (router) {

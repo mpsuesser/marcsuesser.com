@@ -10,19 +10,20 @@ import * as Layer from 'effect/Layer';
 import { chatRoutes } from './ChatHttp.ts';
 import { ChatThrottle } from './ChatThrottle.ts';
 import { CHAT_MODEL } from './ChatTurn.ts';
+import { Corpus, CORPUS_TTL, renderCorpus, reuseFor } from './Corpus.ts';
+import { CorpusBucket, readCorpusFiles } from './CorpusBucket.ts';
 
 /**
  * The chat API. It has no public URL: the website's Worker forwards
  * `/api/chat` to it over a service binding, so it holds the only copy of the
- * OpenAI key and the per-address rate limit.
+ * OpenAI key and the per-address rate limit, and the only (read-only) binding
+ * to the corpus bucket.
  */
 export default Cloudflare.Worker(
 	'Chat',
 	{
 		main: import.meta.url,
-		workersDev: false,
-		// `Corpus.ts` imports the `context/` Markdown files as text.
-		rules: [{ type: 'Text', globs: ['../context/**/*.md'] }]
+		workersDev: false
 	},
 	Effect.gen(function* () {
 		const apiKey = yield* Config.Redacted('OPENAI_API_KEY');
@@ -30,6 +31,13 @@ export default Cloudflare.Worker(
 			namespaceId: 518_302_117,
 			simple: { limit: 12, period: 60 }
 		});
+		const corpusBucket = yield* Cloudflare.R2.ReadBucket(
+			yield* CorpusBucket
+		);
+		const readCorpus = yield* reuseFor(
+			Effect.map(readCorpusFiles(corpusBucket), renderCorpus),
+			CORPUS_TTL
+		);
 
 		const languageModel = OpenAiLanguageModel.layer({
 			model: CHAT_MODEL,
@@ -61,14 +69,35 @@ export default Cloudflare.Worker(
 				})
 		);
 
+		/**
+		 * The corpus, read from the bucket. Like the throttle, the binding is
+		 * only usable inside a request; the rendered text is reused across
+		 * requests for `CORPUS_TTL`, so an edit goes live within that window.
+		 */
+		const corpus = Effect.map(
+			Effect.context<RuntimeContext>(),
+			(context) =>
+				Corpus.of({
+					rendered: readCorpus.pipe(Effect.provide(context))
+				})
+		);
+
 		const handler = yield* HttpRouter.toHttpEffect(
 			chatRoutes.pipe(Layer.provide(languageModel))
 		);
 
 		return {
 			fetch: handler.pipe(
-				Effect.provideServiceEffect(ChatThrottle, throttle)
+				Effect.provideServiceEffect(ChatThrottle, throttle),
+				Effect.provideServiceEffect(Corpus, corpus)
 			)
 		};
-	}).pipe(Effect.provide(Cloudflare.Workers.RateLimitBinding))
+	}).pipe(
+		Effect.provide(
+			Layer.mergeAll(
+				Cloudflare.Workers.RateLimitBinding,
+				Cloudflare.R2.ReadBucketBinding
+			)
+		)
+	)
 );

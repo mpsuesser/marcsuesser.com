@@ -28,10 +28,15 @@
         "name": "@effect/language-service",
         "allowedUnstableApis": [
           "effect/ai",
+          "effect/cli",
           "effect/encoding",
+          "effect/FileSystem",
           "effect/http",
+          "effect/Path",
           "effect/persistence",
           "@effect/platform-browser/BrowserKeyValueStore#layerLocalStorage",
+          "@effect/platform-bun/BunRuntime#runMain",
+          "@effect/platform-bun/BunServices#layer",
           "effect/testing",
           "@effect/vitest",
           "@effect/ai-openai"

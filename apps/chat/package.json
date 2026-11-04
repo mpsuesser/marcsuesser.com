@@ -10,12 +10,14 @@
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "catalog:",
+    "@distilled.cloud/cloudflare": "catalog:",
     "@effect/ai-openai": "catalog:",
     "@marcsuesser/chat-contract": "workspace:*",
     "alchemy": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:dev",
     "typescript": "catalog:dev",
     "vite": "catalog:dev",
