@@ -1,5 +1,6 @@
 import * as Cloudflare from '@alchemy.run/cloudflare';
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai';
+import { ChatModel } from '@marcsuesser/chat-contract';
 import type { RuntimeContext } from 'alchemy/RuntimeContext';
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
@@ -9,7 +10,6 @@ import * as Layer from 'effect/Layer';
 
 import { chatRoutes } from './ChatHttp.ts';
 import { ChatThrottle } from './ChatThrottle.ts';
-import { CHAT_MODEL } from './ChatTurn.ts';
 import { Corpus, CORPUS_TTL, renderCorpus, reuseFor } from './Corpus.ts';
 import { CorpusBucket, readCorpusFiles } from './CorpusBucket.ts';
 
@@ -40,8 +40,12 @@ export default Cloudflare.Worker(
 		);
 
 		const languageModel = OpenAiLanguageModel.layer({
-			model: CHAT_MODEL,
-			config: { max_output_tokens: 4_096 }
+			model: ChatModel.id,
+			config: {
+				service_tier: ChatModel.serviceTier,
+				max_output_tokens: ChatModel.maxOutputTokens,
+				reasoning: { effort: ChatModel.reasoningEffort }
+			}
 		}).pipe(
 			Layer.provide(OpenAiClient.layer({ apiKey })),
 			Layer.provide(FetchHttpClient.layer)

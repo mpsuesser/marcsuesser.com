@@ -9,6 +9,23 @@ import * as Schema from 'effect/Schema';
 /** The path the website posts a chat turn to. */
 export const CHAT_PATH = '/api/chat';
 
+/**
+ * The model that answers visitors. It lives in the contract so the page names
+ * exactly what the chat Worker calls.
+ */
+export const ChatModel = {
+	/** The OpenAI model id. */
+	id: 'gpt-6.1-terra',
+	/** The OpenAI service tier requested on every turn. */
+	serviceTier: 'fast',
+	/** The reasoning effort requested on every turn. */
+	reasoningEffort: 'high',
+	/** Output tokens allowed per reply, reasoning tokens included. */
+	maxOutputTokens: 16_384,
+	/** How the page names the model. */
+	label: '6.1 Terra Fast High'
+} as const;
+
 /** Generous caps that stop runaway loops, not real conversations. */
 export const ChatLimits = {
 	/** Characters a visitor can type into one message. */
@@ -16,9 +33,10 @@ export const ChatLimits = {
 	/**
 	 * Characters allowed in one message on the wire. A model reply can run far
 	 * longer than a visitor's draft, and the whole conversation is sent back
-	 * each turn, so this sits well above the draft cap.
+	 * each turn, so this must exceed the longest reply
+	 * `ChatModel.maxOutputTokens` allows.
 	 */
-	maxMessageChars: 32_000,
+	maxMessageChars: 128_000,
 	/** Messages allowed in one request's history. */
 	maxMessages: 120
 } as const;

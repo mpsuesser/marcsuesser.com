@@ -1,4 +1,8 @@
-import { ChatEvent, type ChatRequest } from '@marcsuesser/chat-contract';
+import {
+	ChatEvent,
+	ChatModel,
+	type ChatRequest
+} from '@marcsuesser/chat-contract';
 import { LanguageModel, Prompt } from 'effect/ai';
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
@@ -8,9 +12,6 @@ import * as Stream from 'effect/Stream';
 
 import { Corpus } from './Corpus.ts';
 import { systemPrompt } from './SystemPrompt.ts';
-
-/** The OpenAI model that answers visitors. */
-export const CHAT_MODEL = 'gpt-6.1-terra';
 
 /** The system prompt over the rendered corpus, then the visitor's conversation as it stands. */
 export const toPrompt = (
@@ -93,7 +94,7 @@ export const streamChatTurn = (
 		),
 		Stream.withSpan('ChatTurn.stream', {
 			attributes: {
-				'chat.model': CHAT_MODEL,
+				'chat.model': ChatModel.id,
 				'chat.message_count': Arr.length(request.messages)
 			}
 		})

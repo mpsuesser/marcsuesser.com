@@ -21,7 +21,7 @@ Rate limiting sits behind the `ChatThrottle` service and the corpus behind the `
 
 On the page, `HttpClient` and `KeyValueStore` are Foldkit `resources` in `apps/website/src/entry.ts`, so commands and subscriptions require them and tests provide fakes.
 
-`ChatLimits` keeps two caps: `maxDraftChars` bounds what a visitor types, `maxMessageChars` bounds every message on the wire. Assistant replies are sent back as history, so the wire cap must exceed the longest reply `max_output_tokens` allows.
+`ChatLimits` keeps two caps: `maxDraftChars` bounds what a visitor types, `maxMessageChars` bounds every message on the wire. Assistant replies are sent back as history, so the wire cap must exceed the longest reply `ChatModel.maxOutputTokens` allows; reasoning tokens count against that cap too.
 
 The website Worker (`apps/website/src/worker/WebsiteWorker.ts`) is a Workers module rather than an Effect Worker, because `Cloudflare.Website.Foldkit` bundles it as the site's custom `main`; it only forwards `/api/*` to `CHAT`.
 
@@ -33,7 +33,7 @@ Each turn sends the whole corpus to the model, sorted by key so the prompt prefi
 
 Entries change through `bun run corpus` (`list`, `get`, `put`, `delete`; see `--help`), which signs in with the same Cloudflare credentials as `alchemy deploy`. A new stage's bucket exists after its first deploy and starts empty; seed a dev stage with `bun run corpus put apps/chat/corpus.example/*.md --stage <stage>`. Turning Marc's dictation into entries is the `corpus-dictation` skill.
 
-The model id is `CHAT_MODEL` in `apps/chat/src/ChatTurn.ts`.
+The model, its service tier, its reasoning effort, its output-token cap, and the label the page shows under the composer are `ChatModel` in `packages/chat-contract`, so the page always names what the Worker calls.
 
 ## Commands
 
