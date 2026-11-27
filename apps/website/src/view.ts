@@ -44,7 +44,7 @@ const emptyView = (model: Model, h: HtmlBuilder<Message>): Html =>
 							'mb-8 text-center text-2xl font-normal text-zinc-100 sm:text-[28px] sm:leading-[34px]'
 						)
 					],
-					['Ask anything about Marc.']
+					['Ask anything about Marc']
 				),
 				composerView(model, h)
 			]
